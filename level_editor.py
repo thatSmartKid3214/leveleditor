@@ -3,12 +3,16 @@ import sys
 import os
 from queue import Queue
 from copy import deepcopy
+import tkinter.filedialog as tkf
+import gui
 
 W = 1200
 H = 600
 FPS = 60
 
 VALID_IMAGE_FORMATS = ["png", "jpg"]
+
+gui.init()
 
 class ImageManager:
     
@@ -102,9 +106,18 @@ class LevelEditor:
         self.ctrl = False
         self.edit_mode = "Place"
         
-        self.load_tileset("20_20.png", {"width":20, "height":20, "colorkey":(255, 255, 255)})
+        self.btn = gui.Button([10, 10], 100, 50, "Test", callback=lambda:print("Hello World"))
+        self.t = gui.TextInput([60, 150], 150, 50)
+        self.label = gui.Label([10, 150], "Test: ")
         
-    def load_tileset(self, path, load_data):
+        self.win = gui.Window([400, 40], 400, 250, "Hello World")
+        
+        self.win.add_items([self.btn, self.t, self.label])
+        
+        self.load_tileset({"width": self.tilesize, "height": self.tilesize, "colorkey":(255, 255, 255)})
+        
+    def load_tileset(self, load_data):
+        path = "20_20.png"
         tileset = ImageManager.load(path, load_data["colorkey"])
         w = tileset.get_width()
         h = tileset.get_height()
@@ -289,6 +302,9 @@ class LevelEditor:
                                                         self.selection_rect.height), 2)
             
             pygame.draw.rect(self.screen, (100, 80, 200), (0, 0, 200, 600)) 
+            
+            self.win.draw(self.screen)
+            self.win.update()
                 
             for btn in self.buttons:
                 btn.draw(self.screen)
@@ -299,6 +315,7 @@ class LevelEditor:
                     pygame.draw.rect(self.screen, (255, 0, 0), btn.rect, 2)
             
             for event in pygame.event.get():
+                self.win.handle_event(event)
                 if event.type == pygame.QUIT:
                     self.running = False
                 
