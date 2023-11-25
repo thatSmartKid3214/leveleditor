@@ -2,6 +2,7 @@ import pygame
 import sys
 import os
 from queue import Queue
+from copy import deepcopy
 
 W = 1200
 H = 600
@@ -94,7 +95,12 @@ class LevelEditor:
         self.scroll_speed = 5
         self.mouse_scroll = [False, 0]
         self.buttons = []
-        
+        self.og_select_pos = [0, 0]
+        self.selection_rect = pygame.Rect(0, 0, 0, 0)
+        self.copied_data = []
+        self.selection = False
+        self.ctrl = False
+        self.edit_mode = "Place"
         
         self.load_tileset("20_20.png", {"width":20, "height":20, "colorkey":(255, 255, 255)})
         
@@ -172,6 +178,43 @@ class LevelEditor:
                 self.level_data[self.get_tile_id(adj[3])] = [new_tile[0], adj[3], new_tile[2]]
                 queue.put(adj[3])
     
+    def del_selected(self):
+        if self.selection_rect.width > 0 or self.selection_rect.height > 0:
+            pos = [int(self.selection_rect.x/self.tilesize), int(self.selection_rect.y/self.tilesize)]
+            Range = [pos[0]+int(self.selection_rect.width/self.tilesize), pos[1]+int(self.selection_rect.height/self.tilesize)]
+            
+            for y in range(pos[1], Range[1]):
+                for x in range(pos[0], Range[0]):
+                    tile_pos = [x, y]
+                    
+                    if self.get_tile_id(tile_pos) in self.level_data:
+                        del self.level_data[self.get_tile_id(tile_pos)]
+        
+        self.selection_rect = pygame.Rect(0, 0, 0, 0)
+    
+    def copy_selected(self):
+        if self.selection_rect.width > 0 or self.selection_rect.height > 0:
+            self.copied_data = []
+            pos = [int(self.selection_rect.x/self.tilesize), int(self.selection_rect.y/self.tilesize)]
+            Range = [pos[0]+int(self.selection_rect.width/self.tilesize), pos[1]+int(self.selection_rect.height/self.tilesize)]
+            
+            for y in range(pos[1], Range[1]):
+                for x in range(pos[0], Range[0]):
+                    tile_pos = [x, y]
+                    
+                    if self.get_tile_id(tile_pos) in self.level_data:
+                        tile = deepcopy(self.level_data[self.get_tile_id(tile_pos)])
+                        tile[1] = [-(pos[0]-(x)), -(pos[1]-(y))]
+                        self.copied_data.append(tile)
+        
+        self.selection_rect = pygame.Rect(0, 0, 0, 0)
+        
+    def paste_selected(self, pos):
+        for tile in self.copied_data:
+            new_pos = [pos[0]+tile[1][0], pos[1]+tile[1][1]]
+            
+            self.level_data[self.get_tile_id(new_pos)] = [tile[0], new_pos, tile[2]]
+    
     def run(self):
         
         while self.running:
@@ -180,6 +223,10 @@ class LevelEditor:
             
             m_pos = pygame.mouse.get_pos()
             tile_pos = [int((m_pos[0]+self.scroll[0])/self.tilesize), int((m_pos[1]+self.scroll[1])/self.tilesize)]
+            if tile_pos[0] < 0:
+                tile_pos[0] -= 1
+            if tile_pos[1] < 0:
+                tile_pos[1] -= 1
             
             if pygame.key.get_pressed()[pygame.K_LEFT]:
                 self.scroll[0] -= self.scroll_speed
@@ -196,30 +243,52 @@ class LevelEditor:
             
             if pygame.mouse.get_pressed()[0] and m_pos[0] > 200:
                 
-                if tile_pos[0] < self.world_left:
-                    self.world_left = tile_pos[0]
-                if tile_pos[0] > self.world_right:
-                    self.world_right = tile_pos[0]
-                if tile_pos[1] < self.world_top:
-                    self.world_top = tile_pos[1]
-                if tile_pos[1] > self.world_bottom:
-                    self.world_bottom = tile_pos[1]
+                if self.edit_mode == "Place":
+                    if tile_pos[0] < self.world_left:
+                        self.world_left = tile_pos[0]
+                    if tile_pos[0] > self.world_right:
+                        self.world_right = tile_pos[0]
+                    if tile_pos[1] < self.world_top:
+                        self.world_top = tile_pos[1]
+                    if tile_pos[1] > self.world_bottom:
+                        self.world_bottom = tile_pos[1]
+                    
+                    if self.get_tile_id(tile_pos) not in self.level_data:
+                        self.level_data[self.get_tile_id(tile_pos)] = [self.current_tile, tile_pos, {}]
+                    elif self.level_data[self.get_tile_id(tile_pos)][0] != self.current_tile:
+                        self.level_data[self.get_tile_id(tile_pos)] = [self.current_tile, tile_pos, {}]
                 
-                if self.get_tile_id(tile_pos) not in self.level_data:
-                    self.level_data[self.get_tile_id(tile_pos)] = [self.current_tile, tile_pos, {}]
-                elif self.level_data[self.get_tile_id(tile_pos)][0] != self.current_tile:
-                    self.level_data[self.get_tile_id(tile_pos)] = [self.current_tile, tile_pos, {}]
-            
-            if pygame.mouse.get_pressed()[2]:
-                if self.get_tile_id(tile_pos) in self.level_data:
-                    del self.level_data[self.get_tile_id(tile_pos)]
+                if self.edit_mode == "Erase":
+                    if self.get_tile_id(tile_pos) in self.level_data:
+                        del self.level_data[self.get_tile_id(tile_pos)]
             
             for tile_id in self.level_data:
                 tile = self.level_data[tile_id]
                 if tile[0] in self.tileset:
                     self.screen.blit(self.tileset[tile[0]], (tile[1][0]*self.tilesize-self.scroll[0], tile[1][1]*self.tilesize-self.scroll[1]))
             
-            pygame.draw.rect(self.screen, (100, 80, 200), (0, 0, 200, 600))    
+            if self.selection and (not self.ctrl):
+                dif = [(tile_pos[0]-self.og_select_pos[0]+1)*self.tilesize, (tile_pos[1]-self.og_select_pos[1]+1)*self.tilesize]
+                
+                self.selection_rect.x = self.og_select_pos[0]*self.tilesize
+                self.selection_rect.y = self.og_select_pos[1]*self.tilesize
+                self.selection_rect.width = dif[0]
+                self.selection_rect.height = dif[1]
+                
+                if dif[0] < 0:
+                    self.selection_rect.x = self.selection_rect.x + dif[0]
+                    self.selection_rect.width = -dif[0]
+                
+                if dif[1] < 0:
+                    self.selection_rect.y = self.selection_rect.y + dif[1]
+                    self.selection_rect.height = -dif[1]
+                
+            pygame.draw.rect(self.screen, (255, 0, 0), (self.selection_rect.x-self.scroll[0], 
+                                                        self.selection_rect.y-self.scroll[1],
+                                                        self.selection_rect.width,
+                                                        self.selection_rect.height), 2)
+            
+            pygame.draw.rect(self.screen, (100, 80, 200), (0, 0, 200, 600)) 
                 
             for btn in self.buttons:
                 btn.draw(self.screen)
@@ -234,16 +303,44 @@ class LevelEditor:
                     self.running = False
                 
                 if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_LCTRL:
+                        self.ctrl = True
+                    
+                    if event.key == pygame.K_c:
+                        if self.ctrl:
+                            self.copy_selected()
+                    
+                    if event.key == pygame.K_v:
+                        if self.ctrl:
+                            self.paste_selected(tile_pos)
+                    
+                    if event.key == pygame.K_b:
+                        self.edit_mode = "Place"
+                    
+                    if event.key == pygame.K_e:
+                        self.edit_mode = "Erase"
+                    
+                    if event.key == pygame.K_DELETE:
+                        self.del_selected()
+                    
                     if event.key == pygame.K_f:
                         if self.get_tile_id(tile_pos) in self.level_data:
                             self.flood_fill(self.level_data[self.get_tile_id(tile_pos)], [self.current_tile, 0, {}], tile_pos)
                         else:
                             self.flood_fill([0, 0, {}], [self.current_tile, 0, {}], tile_pos)
+                
+                if event.type == pygame.KEYUP:
+                    if event.key == pygame.K_LCTRL:
+                        self.ctrl = False
                     
                 if event.type == pygame.MOUSEBUTTONDOWN:
-                    
                     if event.button == 2:
                         self.mouse_scroll = [True, [m_pos[0]-self.scroll[0], m_pos[1]-self.scroll[1]]]
+                    
+                    if event.button == 3:
+                        self.selection = True
+                        self.og_select_pos = [int((m_pos[0]+self.scroll[0])/self.tilesize), int((m_pos[1]+self.scroll[1])/self.tilesize)]
+                        self.selection_rect = pygame.Rect(0, 0, 0, 0)
                     
                     if event.button == 4:
                         self.current_tile = max(self.current_tile-1, 1)
@@ -253,6 +350,8 @@ class LevelEditor:
                 if event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 2:
                         self.mouse_scroll = [False, 0]
+                    if event.button == 3:
+                        self.selection = False
             
             pygame.display.update()
             
